@@ -1,42 +1,51 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-function candidates() {
-    find "$PREFIX" -name '*.gpg' -printf '%P\n' | sed -e 's:.gpg$::gi'
+#[[ -n "$XDG_DATA_HOME" ]] && PASSDIR="$XDG_DATA_HOME/pass" || PASSDIR=$HOME/.password-store
+PASSDIR="${PASSWORD_STORE_DIR:-$HOME/.password-store/}"
+STATES=(FILE_INFO_MODE FIELD_SELECT_MODE)
+
+get_passfile_candidates() {
+  find "$PASSDIR" -name '*.gpg' -printf '%P\n' | sed -e 's/.gpg$//gi'
 }
 
-function candidate_selector_fzf() {
-	query=$1
-	candidates | fzf -q "$query" --select-1
+get_passfile() {
+  PARAMS=$1
+  get_passfile_candidates | fzf -q "$PARAMS" --select-1
 }
 
-function usage() {
-    echo "Usage: $0 [-s] [query]"
-    exit 1
+show_help() {
+  echo "Usage: $0 [-l] [PARAMS]"
+  exit 1
 }
 
-select_only=0
+is_mode() {
+  [[ -n $MODE ]] && [[ $MODE -eq ${STATES[$1]} ]] && echo yes
+}
 
-while getopts "s" o
-do
-    case "${o}" in
-        s)
-            select_only=1
-            ;;
-        *)
-            usage
-            ;;
-    esac
+is_not_wsl() {
+  echo "$PATH" | sed -e '/\/mnt\/c\/Windows\/system32/!d'
+}
+
+while getopts "l" o; do
+  case "${o}" in
+  l)
+    MODE=${STATES[$FILE_INFO_MODE]}
+    ;;
+  *)
+    show_help
+    ;;
+  esac
 done
 
-shift $((OPTIND-1))
-query="$@"
+shift $((OPTIND - 1))
+PARAMS="$@"
+COMMAND=$(get_passfile "$PARAMS")
 
-res=$(candidate_selector_fzf "$query")
-if [ -n "$res" ]; then
-    [ $select_only -ne 0 ] && echo "$res" && exit 0
-    pass show "$res" | tail -n +2 || exit $?
-    pass show -c "$res"
+if [ -n "$COMMAND" ]; then
+  [[ $(is_mode "$FILE_INFO_MODE") ]] && echo "$PASS_SUBDIR$COMMAND" && exit 0
+  [[ -n $PASS_SUBDIR ]] && echo "Subdirectory: $PASS_SUBDIR"
+  PASSWD=$(pass show "$COMMAND" | sed '1!d') || exit $?
+  [[ $(is_not_wsl) ]] && echo "$PASSWD" | clip.exe || pass -c "$COMMAND"
 else
-    exit 1
+  exit 1
 fi
-
